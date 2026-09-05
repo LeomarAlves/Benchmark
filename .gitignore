@@ -1,5 +1,3 @@
-cat << 'EOF' > .gitignore
-
 medir
 benchmark_avx
 benchmark_unroll
@@ -11,4 +9,3 @@ benchmark_fma
 *.swp
 *~
 .DS_Store
-EOF

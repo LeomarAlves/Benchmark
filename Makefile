@@ -6,7 +6,7 @@ OMP_FLAGS = -fopenmp
 
 TARGETS = medir benchmark_avx benchmark_unroll benchmark_fma
 
-.PHONY: all clean run
+.PHONY: all clean run test
 
 all: $(TARGETS)
 
@@ -31,6 +31,8 @@ run: all
 	@./benchmark_unroll
 	@echo "\n=== 4. Benchmark FMA Matrizes (com OpenMP) ==="
 	@./benchmark_fma
+
+test: run
 
 clean:
 	rm -f $(TARGETS)

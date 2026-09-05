@@ -8,7 +8,7 @@ Este repositório contém um conjunto de benchmarks de alta performance em **C**
 
 | Arquivo | Descrição |
 | :--- | :--- |
-| [`Makefile`](Makefile) | Automação de compilação, execução e limpeza com flags dedicadas de otimização. |
+| [`Makefile`](Makefile) | Automação de compilação, execução e testes (`make`, `make run`, `make test`, `make clean`). |
 | [`medir.c`](medir.c) | Exemplo introdutório de medição de ciclos de clock utilizando a instrução de hardware `RDTSC`. |
 | [`benchmark_avx.c`](benchmark_avx.c) | Comparativo de soma de array ($N = 2^{20}$) entre processamento **Escalar** e **Vetorizado (AVX-512)**. |
 | [`benchmark_unroll.c`](benchmark_unroll.c) | Análise de **Loop Unrolling** e múltiplos acumuladores para explorar paralelismo no nível de instrução (ILP). |
@@ -74,11 +74,32 @@ Este repositório contém um conjunto de benchmarks de alta performance em **C**
 # Compilar todos os binários
 make
 
-# Executar toda a suite de testes sequencialmente
-make run
+# Executar toda a suite de benchmarks/testes sequencialmente
+make test   # ou: make run
 
 # Limpar os binários gerados
 make clean
+```
+
+### Execução Individual dos Módulos
+
+Após a compilação, é possível executar cada benchmark individualmente:
+
+```bash
+# 1. Medição simples
+./medir
+
+# 2. Benchmark AVX-512
+./benchmark_avx
+
+# 3. Benchmark Unrolling (ILP)
+./benchmark_unroll
+
+# 4. Benchmark FMA Matrizes (com OpenMP)
+./benchmark_fma
+
+# Opcional: controlar o número de threads do OpenMP
+OMP_NUM_THREADS=4 ./benchmark_fma
 ```
 
 ### Compilação Manual (Passo a Passo)
@@ -101,35 +122,48 @@ gcc -O3 -march=native -Wall -fno-tree-vectorize -mavx512f -mavx512dq -mfma -fope
 
 ## 📊 Resultados e Análise de Desempenho
 
-> **Ambiente de Teste**: Intel(R) Core(TM) i7-1165G7 @ 2.80GHz (4 Núcleos / 8 Threads, AVX-512 habilitado).
+> **Ambiente de Teste**: 11th Gen Intel(R) Core(TM) i7-1165G7 @ 2.80GHz (4 Núcleos / 8 Threads, AVX-512 habilitado, GCC 13 com `-O3 -march=native`).
 
-### 1. Soma de Vetor (`benchmark_avx`)
-*Elemento processados: 1.048.576 floats ($4\text{ MB}$)*
+### 1. Medição Simples (`medir`)
+*Captura de latência de 1.000.000 de iterações em laço `volatile`:*
+
+```text
+Ciclos de clock decorridos: ~720.000 - ~760.000 ciclos
+```
+* **Insight**: Demonstra a leitura com baixíssima sobrecarga via `__rdtsc()` para medição direta de ciclos de clock do hardware sem intervenção do sistema operacional.
+
+---
+
+### 2. Soma de Vetor (`benchmark_avx`)
+*Elementos processados: 1.048.576 floats ($4\text{ MB}$)*
 
 ```text
 Elementos processados: 1048576
-Escalar  | Resultado: 1048576 | Ciclos:    7632108 | Ciclos/elem: 7.28
-AVX-512  | Resultado: 1048576 | Ciclos:    1514318 | Ciclos/elem: 1.44
-Speedup  | 5.04x mais rápido
+Escalar  | Resultado: 1048576 | Ciclos:    6666159 | Ciclos/elem: 6.36
+AVX-512  | Resultado: 1048576 | Ciclos:     673648 | Ciclos/elem: 0.64
+Speedup  | 9.90x mais rápido
 ```
+* **Insight**: O registrador ZMM de 512 bits processa 16 floats simultaneamente por instrução, reduzindo o tempo por elemento de 6.36 ciclos para menos de 1 ciclo (0.64 ciclos/elem), alcançando um speedup de até **~9.9x** sobre o processamento escalar sequencial.
 
 ---
 
-### 2. Desenrolamento de Laço & ILP (`benchmark_unroll`)
-*Elemento processados: 1.048.576 floats*
+### 3. Desenrolamento de Laço & ILP (`benchmark_unroll`)
+*Elementos processados: 1.048.576 floats*
 
 ```text
+Elementos: 1048576
+
 Estratégia           | Resultado  | Ciclos Totais | Ciclos/elem | Speedup
 ---------------------|------------|---------------|-------------|--------
-1. Escalar           |    1048576 |       7000469 |        6.68 | 1.00x
-2. AVX-512 (1x Acc)  |    1048576 |       1108011 |        1.06 | 6.32x
-3. AVX-512 (4x Acc)  |    1048576 |        678515 |        0.65 | 10.32x
+1. Escalar           |    1048576 |       6947333 |        6.63 | 1.00x
+2. AVX-512 (1x Acc)  |    1048576 |        996596 |        0.95 | 6.97x
+3. AVX-512 (4x Acc)  |    1048576 |        404237 |        0.39 | 17.19x
 ```
-* **Insight**: A utilização de 4 acumuladores independentes reduz o tempo por elemento para **0.65 ciclos**, superando o throughput de 1 acumulador devido à eliminação do gargalo de dependência na pipeline de execução vetorial.
+* **Insight**: A utilização de 4 acumuladores independentes reduz o tempo por elemento para apenas **0.39 ciclos** (speedup de **17.19x** vs. escalar e **~2.46x** vs. AVX-512 1x Acc). Isso ocorre porque múltiplos acumuladores quebram as dependências de dados entre instruções consecutivas, saturando as portas de execução da CPU por meio do *Instruction-Level Parallelism* (ILP).
 
 ---
 
-### 3. Multiplicação de Matriz Dense ($1024 \times 1024$) (`benchmark_fma`)
+### 4. Multiplicação de Matriz Densa ($1024 \times 1024$) (`benchmark_fma`)
 *Total de Operações: $2.147.483.648\text{ FLOPs}$ ($2.15\text{ GFLOPs}$)*
 
 ```text
@@ -137,13 +171,13 @@ Matrizes: 1024x1024 | Total FLOPs: 2147483648 | Threads OpenMP: 8
 
 Estratégia               | Ciclos Totais | FLOPs/Ciclo | Speedup
 -------------------------|---------------|-------------|--------
-1. Escalar (1 thread)    |    6194722896 |        0.35 | 1.00x
-2. AVX-512 FMA (1 thread)|     227861463 |        9.42 | 27.19x
-3. AVX-512 FMA + OpenMP  |      77747574 |       27.62 | 79.68x
+1. Escalar (1 thread)    |    5819390488 |        0.37 | 1.00x
+2. AVX-512 FMA (1 thread)|     234741057 |        9.15 | 24.79x
+3. AVX-512 FMA + OpenMP  |      62618371 |       34.29 | 92.93x
 ```
 * **Insight**:
-  * **Loop Interchange + AVX-512 + FMA**: Eleva o throughput de **0.35 FLOPs/ciclo** para **9.42 FLOPs/ciclo** (ganho de **27.19x**), combinando acesso sequencial à cache com a densidade computacional da instrução FMA (32 FLOPs por instrução de 512 bits).
-  * **OpenMP Multi-threading**: Ao escalar entre os 8 threads lógicos da CPU, o tempo cai para **77 milhões de ciclos** (**27.62 FLOPs/ciclo**), atingindo um speedup total de **~80x** em relação ao algoritmo escalar inicial.
+  * **Loop Interchange + AVX-512 + FMA**: Eleva o throughput de **0.37 FLOPs/ciclo** para **9.15 FLOPs/ciclo** (ganho de **~24.8x**), combinando acesso sequencial à memória (stride 1) com a densidade computacional da instrução FMA (32 FLOPs por instrução de 512 bits).
+  * **OpenMP Multi-threading**: Ao paralelizar o laço externo entre as 8 threads lógicas da CPU, o tempo de execução cai para **~62.6 milhões de ciclos** (**34.29 FLOPs/ciclo**), atingindo um speedup total de **~93x** em relação ao algoritmo escalar inicial ingênuo.
 
 ---
 
